@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Warden — Virtual Tabletop</title>
+<style>
+  :root{
+    --bg:#0e0f14; --panel:#171922; --panel2:#1f222e; --line:#2b2f3d;
+    --ink:#e7e9f0; --dim:#9aa0b4; --accent:#c9a15a; --accent2:#7aa2ff;
+    --pc:#4f9dff; --ai:#39c3b4; --mob:#e5564e; --npc:#e7b24b; --dead:#555b6e;
+    --hp:#54d08a; --hpbad:#e5564e;
+    --hexclip:polygon(50% 2%,96% 26%,96% 74%,50% 98%,4% 74%,4% 26%);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  h1,h2,h3{margin:0;font-weight:650}
+  .app{display:grid;grid-template-columns:1fr 340px;grid-template-rows:auto 1fr auto;
+    grid-template-areas:"top top" "board side" "act side";height:100vh}
+  header{grid-area:top;display:flex;align-items:center;gap:14px;padding:10px 16px;
+    border-bottom:1px solid var(--line);background:linear-gradient(180deg,#14161f,#101219)}
+  header .title{font-family:Georgia,serif;letter-spacing:.3px}
+  header .accent{color:var(--accent)}
+  header .meta{color:var(--dim);font-size:13px;margin-left:auto;text-align:right}
+  .badge{display:inline-block;padding:2px 8px;border:1px solid var(--line);border-radius:999px;
+    font-size:12px;color:var(--dim)}
+  .badge.combat{color:#ffd0cd;border-color:#5a2a2a;background:#2a1414}
+
+  /* board */
+  .boardwrap{grid-area:board;overflow:auto;padding:22px;display:flex;justify-content:center;align-items:flex-start}
+  .board{position:relative;border-radius:16px;overflow:hidden;
+    box-shadow:0 18px 55px rgba(0,0,0,.55),inset 0 0 0 1px var(--line),inset 0 0 90px rgba(0,0,0,.5)}
+  .board.dungeon{background:radial-gradient(135% 105% at 50% -5%,#242636,#111117 72%)}
+  .board.cave   {background:radial-gradient(135% 105% at 50% -5%,#2c2219,#120d09 72%)}
+  .board.forest {background:radial-gradient(135% 105% at 50% -5%,#1d3a2a,#0b1610 72%)}
+  .board.town   {background:radial-gradient(135% 105% at 50% -5%,#332d21,#16130d 72%)}
+  .board.ruin   {background:radial-gradient(135% 105% at 50% -5%,#272730,#131318 72%)}
+  .board::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:2;
+    background:radial-gradient(125% 95% at 50% 8%,transparent 52%,rgba(0,0,0,.5))}
+  .hexgrid{position:absolute;inset:0;z-index:1;display:block}
+  .hx{stroke:rgba(255,255,255,.075);stroke-width:1;fill:rgba(255,255,255,.012)}
+  .hx.b{fill:rgba(255,255,255,.045)}
+  .board.forest .hx{stroke:rgba(150,210,165,.11)} .board.forest .hx.b{fill:rgba(95,170,115,.08)}
+  .board.cave   .hx{stroke:rgba(205,165,120,.11)} .board.cave   .hx.b{fill:rgba(160,115,70,.08)}
+  .board.town   .hx{stroke:rgba(225,205,150,.11)} .board.town   .hx.b{fill:rgba(190,155,90,.08)}
+  .board.ruin   .hx{stroke:rgba(190,195,215,.10)} .board.ruin   .hx.b{fill:rgba(150,160,190,.06)}
+  .board.dungeon .hx.b{fill:rgba(135,155,205,.06)}
+
+  /* features */
+  .feat{position:absolute;display:flex;align-items:center;justify-content:center;z-index:4}
+  .feat .fhex{position:absolute;inset:7%;clip-path:var(--hexclip)}
+  .feat .fsym{position:relative;font-size:22px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+  .feat.wall  .fhex{background:linear-gradient(160deg,#3a3f4c,#262a34);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+  .feat.water .fhex{background:radial-gradient(circle at 40% 30%,rgba(110,170,235,.42),rgba(40,90,160,.3))}
+  .feat.loot  .fhex{background:radial-gradient(circle,rgba(255,215,106,.28),transparent 70%)}
+  .feat.hazard .fhex{background:radial-gradient(circle,rgba(255,120,70,.26),transparent 70%)}
+  .feat .flabel{position:absolute;bottom:-12px;left:50%;transform:translateX(-50%);white-space:nowrap;
+    font-size:9px;color:var(--dim)}
+
+  /* tokens — a character / creature / npc on a hex tile */
+  .token{position:absolute;cursor:grab;user-select:none;z-index:6;
+    transition:left .28s cubic-bezier(.3,.7,.3,1),top .28s cubic-bezier(.3,.7,.3,1)}
+  .token .frame{position:absolute;inset:0;clip-path:var(--hexclip);
+    display:flex;align-items:center;justify-content:center;
+    filter:drop-shadow(0 3px 6px rgba(0,0,0,.65))}
+  .token .face{clip-path:var(--hexclip);width:84%;height:84%;display:flex;align-items:center;
+    justify-content:center;font-size:25px;line-height:1}
+  .token.pc  .frame{background:linear-gradient(160deg,#9fccff,#2f6fc9)} .token.pc  .face{background:radial-gradient(circle at 35% 28%,#20304a,#0d1726)}
+  .token.ai  .frame{background:linear-gradient(160deg,#8fe6db,#1f9d90)} .token.ai  .face{background:radial-gradient(circle at 35% 28%,#15322f,#081917)}
+  .token.mob .frame{background:linear-gradient(160deg,#ff9e98,#c13c34)} .token.mob .face{background:radial-gradient(circle at 35% 28%,#3a1512,#1c0908)}
+  .token.npc .frame{background:linear-gradient(160deg,#ffe0a0,#c9922f)} .token.npc .face{background:radial-gradient(circle at 35% 28%,#3a2c10,#1c1507)}
+  .token.active .frame{filter:drop-shadow(0 0 7px var(--accent)) drop-shadow(0 3px 6px rgba(0,0,0,.65))}
+  .token.dead{opacity:.5;cursor:default}
+  .token.dead .frame{background:var(--dead)!important} .token.dead .face{background:#2d313d!important}
+  .token.dragging{cursor:grabbing;transition:none;z-index:20}
+  .token .hpdot{position:absolute;bottom:-3px;left:50%;transform:translateX(-50%);min-width:17px;height:17px;
+    padding:0 3px;border-radius:9px;background:var(--hp);border:2px solid #0b0c11;font-size:10px;font-weight:700;
+    color:#07121f;display:flex;align-items:center;justify-content:center;z-index:2}
+  .token .hpdot.low{background:var(--hpbad);color:#fff}
+  .token .tip{position:absolute;bottom:104%;left:50%;transform:translateX(-50%);white-space:nowrap;
+    background:#0b0c11;border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:11px;
+    font-weight:500;color:var(--ink);opacity:0;pointer-events:none;transition:opacity .15s;z-index:30}
+  .token:hover .tip{opacity:1}
+
+  /* sidebar */
+  aside{grid-area:side;border-left:1px solid var(--line);background:var(--panel);
+    overflow:auto;padding:14px}
+  .scene{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:14px}
+  .scene .loc{color:var(--accent);font-family:Georgia,serif;font-size:15px;margin-bottom:4px}
+  .scene .desc{color:var(--dim);font-size:13px}
+  .scene .exits{margin-top:8px;font-size:12px;color:var(--dim)}
+  .sect{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin:14px 2px 8px}
+  .card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+  .card .row1{display:flex;align-items:center;gap:8px}
+  .dot{width:12px;height:12px;border-radius:50%;flex:none}
+  .dot.pc{background:var(--pc)}.dot.ai{background:var(--ai)}.dot.mob{background:var(--mob)}.dot.npc{background:var(--npc)}.dot.dead{background:var(--dead)}
+  .card .nm{font-weight:650}.card .sub{color:var(--dim);font-size:12px;margin-left:auto}
+  .abil{display:flex;gap:6px;margin:8px 0 6px;flex-wrap:wrap}
+  .abil span{background:#12141d;border:1px solid var(--line);border-radius:6px;padding:2px 7px;font-size:12px}
+  .hpbar{height:7px;background:#12141d;border-radius:4px;overflow:hidden;border:1px solid var(--line)}
+  .hpbar>i{display:block;height:100%;background:var(--hp)}
+  .hpbar.low>i{background:var(--hpbad)}
+  .card .meta{font-size:12px;color:var(--dim);margin-top:6px}
+  .card .inv{font-size:11px;color:#8188a0;margin-top:4px}
+  .status{font-size:11px;padding:1px 6px;border-radius:999px;margin-left:6px}
+  .status.critical,.status.dead{background:#3a1414;color:#ffb0ab}
+  .status.paralyzed,.status.delirious,.status.fled{background:#2a2410;color:#ffe08a}
+
+  /* log + action */
+  .logwrap{grid-area:board;display:none}
+  .act{grid-area:act;border-top:1px solid var(--line);background:var(--panel);padding:12px 16px}
+  .log{max-height:220px;overflow:auto;margin-bottom:10px;padding-right:6px}
+  .beat{margin-bottom:12px}
+  .beat .who{font-size:12px;color:var(--accent2);font-weight:650;margin-bottom:2px}
+  .beat .who .ai{color:var(--ai)}
+  .beat .act-line{color:var(--dim);font-style:italic;font-size:13px;margin-bottom:3px}
+  .beat .say{color:var(--ai);font-size:13px;margin-bottom:3px}
+  .beat .narr{color:var(--ink)}
+  .beat .mech{font-size:12px;color:#b9a06a;margin-top:3px}
+  .beat .mech span{display:block}
+  .opts{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+  .opt{background:#12141d;border:1px solid var(--line);color:var(--dim);font-size:12px;
+    padding:5px 10px;border-radius:999px;cursor:pointer}
+  .opt:hover{color:var(--ink);border-color:var(--accent)}
+  .turnbar{font-size:13px;margin-bottom:8px;min-height:20px}
+  .turnbar .yours{color:var(--hp);font-weight:650}
+  .turnbar .wait{color:var(--dim)}
+  .turnbar .wait b{color:var(--accent2)}
+  .turnbar .ai b{color:var(--ai)}
+  .ctl{font-size:10px;padding:1px 6px;border-radius:999px;margin-left:6px;border:1px solid var(--line)}
+  .ctl.you{background:#12301f;color:#8ff0bd;border-color:#1f5a3a}
+  .ctl.human{background:#10243f;color:#9ec3ff;border-color:#214a7a}
+  .ctl.ai{background:#102a28;color:#8fe0d6;border-color:#1f5a53}
+  button.ctl.tog{font:inherit;font-size:10px;cursor:pointer;transition:filter .15s}
+  button.ctl.tog:hover{filter:brightness(1.35)}
+  .inputrow{display:flex;gap:8px}
+  input,textarea,button,select{font:inherit}
+  #cmd{flex:1;background:#0b0c11;border:1px solid var(--line);color:var(--ink);
+    border-radius:8px;padding:10px 12px;outline:none}
+  #cmd:focus{border-color:var(--accent2)}
+  button.go{background:var(--accent);color:#1a1405;border:none;border-radius:8px;
+    padding:10px 18px;font-weight:700;cursor:pointer}
+  button.go:disabled{opacity:.5;cursor:wait}
+
+  /* setup modal */
+  .modal{position:fixed;inset:0;background:rgba(6,7,11,.86);display:flex;align-items:center;
+    justify-content:center;z-index:100;padding:20px}
+  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:26px;
+    width:min(560px,94vw);box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  .sheet h2{font-family:Georgia,serif;margin-bottom:4px}
+  .sheet p.sub{color:var(--dim);font-size:13px;margin:0 0 18px}
+  .field{margin-bottom:13px}
+  .field label{display:block;font-size:12px;color:var(--dim);margin-bottom:5px}
+  .field input,.field textarea,.field select{width:100%;background:#0b0c11;border:1px solid var(--line);
+    color:var(--ink);border-radius:8px;padding:9px 11px;outline:none}
+  .field textarea{resize:vertical;min-height:54px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .thinking{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:#12141d;
+    border:1px solid var(--line);border-radius:999px;padding:8px 16px;color:var(--accent);
+    font-size:13px;display:none;z-index:40}
+  .thinking.on{display:block}
+  .err{color:#ff938c;font-size:13px;margin-top:8px;min-height:16px}
+  @media(max-width:860px){.app{grid-template-columns:1fr;grid-template-areas:"top" "board" "side" "act"}
+    aside{border-left:none;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="title"><span class="accent">⚔ AI Warden</span> <span style="color:var(--dim)">· Virtual Tabletop</span></div>
+    <button id="newgame" class="opt" style="margin-left:4px">＋ New game</button>
+    <span id="youare" class="badge" style="display:none"></span>
+    <div class="meta" id="hdrmeta"></div>
+  </header>
+
+  <div class="boardwrap">
+    <div id="board" class="board dungeon">
+      <svg class="hexgrid" id="hexgrid"></svg>
+    </div>
+  </div>
+
+  <aside>
+    <div class="scene" id="scene">
+      <div class="loc">No session</div>
+      <div class="desc">Start a new adventure to lay out the table.</div>
+    </div>
+    <div class="sect">Party</div>
+    <div id="party"></div>
+    <div class="sect" id="threatsect" style="display:none">On the field</div>
+    <div id="threats"></div>
+  </aside>
+
+  <div class="act">
+    <div class="log" id="log"></div>
+    <div class="turnbar" id="turnbar"></div>
+    <div class="opts" id="opts"></div>
+    <div class="inputrow">
+      <input id="cmd" placeholder="Describe what you do…  (e.g. “I draw my sword and charge the nearest goblin”)" autocomplete="off">
+      <button class="go" id="send">Act</button>
+    </div>
+    <div class="err" id="err"></div>
+  </div>
+</div>
+
+<div class="thinking" id="thinking">the Warden considers…</div>
+
+<!-- setup -->
+<div class="modal" id="setup">
+  <div class="sheet">
+    <h2>Begin an Adventure</h2>
+    <p class="sub">An AI <b>Warden</b> runs the world and the monsters. You play the hero; AI companions can fill the rest of the party. Powered by Cairn.</p>
+    <div class="two">
+      <div class="field"><label>Your character's name</label><input id="f_name" value="Bea"></div>
+      <div class="field"><label>Party size (incl. you)</label>
+        <select id="f_size"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
+    </div>
+    <div class="field"><label>Adventure premise</label>
+      <textarea id="f_premise">The village well has run black, and something stirs in the dark water below. The headwoman has hired you to descend and end it.</textarea></div>
+    <div class="field"><label>AI companions (optional) — <span style="color:var(--dim)">any seats you leave blank are filled by the AI. Name:persona; separated by ;</span></label>
+      <input id="f_comp" placeholder="leave blank to auto-fill, or e.g. Thorn:gruff dwarf; Mira:wary scout"></div>
+    <div class="field"><label>Dice seed (optional)</label><input id="f_seed" placeholder="blank = random"></div>
+    <button class="go" id="begin" style="width:100%;padding:12px">Enter the Wood</button>
+    <div class="err" id="serr"></div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+let PID=localStorage.getItem('aigm_pid'); if(!PID){PID=(crypto.randomUUID?crypto.randomUUID():String(Math.random()).slice(2));localStorage.setItem('aigm_pid',PID);}
+function api(p,b){ if(b)b={player_id:PID,...b};
+  return fetch(p+(b?'':'?player_id='+PID),{method:b?'POST':'GET',
+    headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined}).then(r=>r.json()); }
+let STATE=null, busy=false, lastLogLen=-1, polling=null;
+
+function alive(t){ return t.status!=='dead' && t.status!=='fled'; }
+function tokClass(t,isPC){ if(!alive(t))return 'dead'; if(isPC)return (t.controlled==='ai')?'ai':'pc'; return t.kind==='npc'?'npc':'mob'; }
+
+/* ---- pointy-top hex layout (offset rows). Grid (x,y) stays the server model. ---- */
+const S=34, HEXW=Math.sqrt(3)*S, HEXH=2*S, ROW=1.5*S, PAD=10, TS=HEXW*0.9;
+function center(x,y){ const off=(y%2)?HEXW/2:0; return {cx:PAD+HEXW/2+off+x*HEXW, cy:PAD+S+y*ROW}; }
+function boardPx(w,h){ return {W:PAD*2+w*HEXW+HEXW/2, H:PAD*2+(h-1)*ROW+HEXH}; }
+function hexPts(cx,cy,r){ let p=[]; for(let i=0;i<6;i++){const a=Math.PI/180*(60*i-90);
+  p.push((cx+r*Math.cos(a)).toFixed(1)+','+(cy+r*Math.sin(a)).toFixed(1));} return p.join(' '); }
+function pixelToHex(px,py){ const m=STATE.map; let best={x:0,y:0},bd=1e18;
+  const ry=Math.round((py-PAD-S)/ROW);
+  for(let y=Math.max(0,ry-1);y<=Math.min(m.height-1,ry+1);y++){
+    const off=(y%2)?HEXW/2:0; const rx=Math.round((px-PAD-HEXW/2-off)/HEXW);
+    for(let x=Math.max(0,rx-1);x<=Math.min(m.width-1,rx+1);x++){
+      const c=center(x,y),d=(c.cx-px)**2+(c.cy-py)**2; if(d<bd){bd=d;best={x,y};} } }
+  return best;
+}
+
+/* ---- pick an emoji so each token reads as a character / creature / npc ---- */
+function hash(s){let h=0;for(let i=0;i<(s||'').length;i++)h=(h*31+s.charCodeAt(i))|0;return Math.abs(h);}
+const HERO=['🧝','🧙','🗡️','🏹','🛡️','🪓','🥷','🧚','⚔️','🧑‍🎤','🧑‍🚀','👳'];
+const MOBS=[[/goblin/,'👺'],[/orc|ogre/,'👹'],[/skelet|bone|skull|lich/,'💀'],[/zombie|undead|ghoul|mummy/,'🧟'],
+  [/ghost|wraith|spectre|specter|shade|phantom|banshee/,'👻'],[/rat|rodent|mouse|vermin/,'🐀'],[/bat/,'🦇'],
+  [/spider|arachnid/,'🕷️'],[/snake|serpent|viper|naga|cobra/,'🐍'],[/wolf|hound|dog|jackal|mastiff/,'🐺'],
+  [/bear/,'🐻'],[/boar|pig|hog|swine/,'🐗'],[/dragon|wyrm|drake|wyvern/,'🐉'],[/slime|ooze|jelly|pudding/,'🫠'],
+  [/troll/,'🧌'],[/demon|devil|fiend|imp|balor/,'😈'],[/fish|eel|shark/,'🐟'],[/crab|lobster/,'🦀'],[/worm|grub|maggot/,'🪱'],
+  [/beetle|bug|insect|roach|mantis/,'🪲'],[/bird|crow|raven|harpy|vulture/,'🐦'],[/eye|beholder|gazer/,'👁️'],
+  [/knight|guard|soldier|warrior|brute/,'🛡️'],[/mage|wizard|sorcer|cultist|witch|warlock/,'🧙'],
+  [/bandit|thief|rogue|assassin|cutthroat/,'🥷'],[/frog|toad|newt/,'🐸'],[/scorpion/,'🦂'],[/lizard|gecko|kobold|reptil/,'🦎'],
+  [/plant|vine|shroom|fungus|mushroom|myconid/,'🍄'],[/golem|statue|construct|gargoyle/,'🗿'],
+  [/elemental|flame|fire|ember/,'🔥'],[/ice|frost|snow/,'❄️'],[/octopus|kraken|tentacle/,'🐙'],[/ant/,'🐜']];
+const NPCS=[[/king|baron|duke/,'🤴'],[/queen|princess|duchess/,'👸'],[/old|elder|crone|sage|hermit|grand/,'🧓'],
+  [/child|kid|boy|girl|orphan/,'🧒'],[/merchant|trader|smith|farmer|miller|baker/,'🧑‍🌾'],
+  [/priest|monk|cleric|nun|acolyte|friar/,'🧑‍⚖️'],[/guard|watch|soldier|sentry/,'💂'],
+  [/woman|lady|mother|maid|headwoman|widow|dame/,'👩'],[/man|lord|father|master|sir/,'👨']];
+function glyphFor(t,isPC){ const n=(t.name||'').toLowerCase();
+  if(isPC) return HERO[hash(t.name)%HERO.length];
+  const table=(t.kind==='npc')?NPCS:MOBS;
+  for(const [re,g] of table){ if(re.test(n)) return g; }
+  return t.kind==='npc'?'🧑':'👾';
+}
+
+function buildGrid(){
+  const m=STATE.map, {W,H}=boardPx(m.width,m.height), svg=$('#hexgrid');
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('width',W); svg.setAttribute('height',H);
+  let cells='';
+  for(let y=0;y<m.height;y++) for(let x=0;x<m.width;x++){
+    const c=center(x,y); cells+=`<polygon points="${hexPts(c.cx,c.cy,S-1)}" class="hx ${(x+y)%2?'a':'b'}"/>`; }
+  svg.innerHTML=cells;
+  const b=$('#board'); b.style.width=W+'px'; b.style.height=H+'px';
+}
+
+function renderBoard(){
+  const b=$('#board'), m=STATE.map;
+  b.className='board '+(m.biome||'dungeon');
+  buildGrid();
+  [...b.querySelectorAll('.feat,.token')].forEach(e=>e.remove());
+  const sym={wall:'',door:'🚪',hazard:'🔥',water:'🌊',stairs:'🪜',loot:'💰',feature:'✦'};
+  (m.features||[]).forEach(f=>{
+    const c=center(f.x,f.y), d=document.createElement('div');
+    d.className='feat '+(f.kind||'feature');
+    d.style.width=d.style.height=TS+'px'; d.style.left=(c.cx-TS/2)+'px'; d.style.top=(c.cy-TS/2)+'px';
+    d.innerHTML=`<div class="fhex"></div><span class="fsym">${sym[f.kind]||''}</span>`;
+    if(f.label){const l=document.createElement('div');l.className='flabel';l.textContent=f.label;d.appendChild(l);}
+    b.appendChild(d);
+  });
+  const place=(t,isPC)=>{
+    const c=center(t.x,t.y), el=document.createElement('div');
+    const active = STATE.active===t.name ? ' active' : '';
+    el.className='token '+tokClass(t,isPC)+active;
+    el.style.width=el.style.height=TS+'px'; el.style.left=(c.cx-TS/2)+'px'; el.style.top=(c.cy-TS/2)+'px';
+    el.innerHTML=`<div class="frame"><div class="face">${alive(t)?glyphFor(t,isPC):'💀'}</div></div>`;
+    const tip=document.createElement('div');tip.className='tip';
+    tip.textContent=`${t.name} · HP ${t.hp}/${t.max_hp}${t.status&&t.status!=='ok'?' · '+t.status:''}`;
+    el.appendChild(tip);
+    if('hp' in t){const hd=document.createElement('div');hd.className='hpdot'+(t.hp<=Math.max(1,t.max_hp*0.34)?' low':'');hd.textContent=t.hp;el.appendChild(hd);}
+    if(alive(t)) makeDraggable(el,t);
+    b.appendChild(el);
+  };
+  STATE.party.forEach(c=>place(c,true));
+  STATE.threats.forEach(mm=>place(mm,false));
+}
+
+function makeDraggable(el,tok){
+  el.addEventListener('pointerdown',e=>{
+    if(busy)return; e.preventDefault();
+    const b=$('#board'), rect=b.getBoundingClientRect();
+    el.classList.add('dragging'); el.setPointerCapture(e.pointerId);
+    const move=ev=>{ el.style.left=(ev.clientX-rect.left-TS/2)+'px'; el.style.top=(ev.clientY-rect.top-TS/2)+'px'; };
+    const up=ev=>{
+      el.releasePointerCapture(e.pointerId); el.classList.remove('dragging');
+      el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up);
+      const h=pixelToHex(ev.clientX-rect.left,ev.clientY-rect.top), c=center(h.x,h.y);
+      el.style.left=(c.cx-TS/2)+'px'; el.style.top=(c.cy-TS/2)+'px'; tok.x=h.x; tok.y=h.y;
+      api('/api/move',{name:tok.name,x:h.x,y:h.y}).catch(()=>{});
+    };
+    el.addEventListener('pointermove',move); el.addEventListener('pointerup',up);
+  });
+}
+
+function pct(t){return Math.max(0,Math.min(100,100*t.hp/Math.max(1,t.max_hp)));}
+function abilHtml(t){return (STATE.ruleset.abilities||Object.keys(t.abilities)).map(a=>`<span>${a} ${t.abilities[a]}</span>`).join('');}
+function card(t,isPC){
+  const cls=tokClass(t,isPC), low=t.hp<=Math.max(1,t.max_hp*0.34);
+  const st=t.status&&t.status!=='ok'?`<span class="status ${t.status}">${t.status}</span>`:'';
+  let ctl='';
+  if(isPC){
+    if(t.is_you) ctl=`<button class="ctl you tog" data-rel="${ESC(t.name)}" title="Hand this character to the Warden (AI)">you ⇄ AI</button>`;
+    else if(t.controlled==='ai') ctl=`<button class="ctl ai tog" data-cl="${ESC(t.name)}" title="Take control of this character yourself">AI ⇄ you</button>`;
+    else ctl='<span class="ctl human">player</span>';
+  }
+  const active = STATE.active===t.name ? ' style="outline:1px solid var(--accent)"' : '';
+  return `<div class="card"${active}><div class="row1">
+      <span class="dot ${cls}"></span><span class="nm">${t.name}</span>${ctl}${st}
+      <span class="sub">${isPC?'':(t.kind==='npc'?'NPC':'foe')}</span></div>
+    <div class="abil">${abilHtml(t)}</div>
+    <div class="hpbar ${low?'low':''}"><i style="width:${pct(t)}%"></i></div>
+    <div class="meta">HP ${t.hp}/${t.max_hp} · Armor ${t.armor||0} · ${t.weapon||'—'} (${t.weapon_die||'1d4'})</div>
+    ${isPC&&t.inventory?`<div class="inv">🎒 ${t.inventory.join(', ')}</div>`:''}</div>`;
+}
+
+function renderSide(){
+  const s=STATE.scene;
+  $('#scene').innerHTML=`<div class="loc">${s.location||'—'}</div>
+     <div class="desc">${s.description||''}</div>
+     ${s.exits&&s.exits.length?`<div class="exits">↪ exits: ${s.exits.join(', ')}</div>`:''}`;
+  $('#party').innerHTML=STATE.party.map(c=>card(c,true)).join('');
+  [...$('#party').querySelectorAll('[data-cl]')].forEach(b=>b.onclick=()=>toggleCtl(b.getAttribute('data-cl'),false));
+  [...$('#party').querySelectorAll('[data-rel]')].forEach(b=>b.onclick=()=>toggleCtl(b.getAttribute('data-rel'),true));
+  const th=STATE.threats||[];
+  $('#threatsect').style.display=th.length?'block':'none';
+  $('#threats').innerHTML=th.map(m=>card(m,false)).join('');
+  const combat=STATE.in_combat?`<span class="badge combat">⚔ combat · round ${STATE.round}</span>`:'<span class="badge">exploration</span>';
+  const players=`<span class="badge">👥 ${STATE.players} human${STATE.players===1?'':'s'}</span>`;
+  $('#hdrmeta').innerHTML=`${combat} ${players} &nbsp; <span style="color:var(--dim)">${STATE.ruleset.name} · ${STATE.ruleset.warden_title}</span>`;
+  const ya=$('#youare'); ya.style.display='inline-block';
+  ya.textContent = STATE.your_seat ? ('🫵 You: '+STATE.your_seat) : '👁 Spectator';
+}
+
+const ESC=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function renderLog(){
+  const log=$('#log'); const evs=STATE.log||[];
+  if(evs.length===lastLogLen) return;           // nothing new
+  lastLogLen=evs.length;
+  log.innerHTML = evs.map(e=>{
+    if(e.kind==='narration') return `<div class="beat"><div class="narr">${ESC(e.text)}</div></div>`;
+    if(e.kind==='action')    return `<div class="beat"><div class="who">${ESC(e.actor)}</div><div class="act-line">▶ ${ESC(e.text)}</div></div>`;
+    if(e.kind==='mechanic')  return `<div class="mech"><span>⚙ ${ESC(e.text)}</span></div>`;
+    return `<div class="act-line">» ${ESC(e.text)}</div>`;
+  }).join('');
+  log.scrollTop=log.scrollHeight;
+}
+function renderOpts(opts){
+  $('#opts').innerHTML=(opts||[]).map(o=>`<button class="opt">${ESC(o)}</button>`).join('');
+  [...$('#opts').children].forEach(b=>b.onclick=()=>{ if(!$('#cmd').disabled){$('#cmd').value=b.textContent; $('#cmd').focus();} });
+}
+function renderTurn(){
+  const tb=$('#turnbar'); const can = STATE.your_turn && !STATE.party_down;
+  if(STATE.party_down){ tb.innerHTML='<span class="wait">The party has fallen. The Warden closes the book.</span>'; }
+  else if(STATE.your_turn){ tb.innerHTML='<span class="yours">● Your turn — describe what you do.</span>'; }
+  else if(STATE.active_is_ai){ tb.innerHTML=`<span class="ai">⏳ the AI is playing <b>${ESC(STATE.active)}</b>…</span>`; }
+  else { tb.innerHTML=`<span class="wait">⏳ waiting for <b>${ESC(STATE.active)}</b>…</span>`; }
+  $('#cmd').disabled = !can || busy;
+  $('#send').disabled = !can || busy;
+  $('#cmd').placeholder = can ? 'Describe what you do…' : (STATE.party_down?'—':'Not your turn yet…');
+}
+
+function render(){ renderBoard(); renderSide(); renderLog(); renderOpts(STATE.options); renderTurn(); }
+function apply(res){ STATE=res.state; render(); }
+function thinking(on){ $('#thinking').classList.toggle('on',on); busy=on; renderTurn(); }
+
+async function refresh(){
+  if(busy) return;
+  try{
+    const s=await api('/api/state');
+    if(s&&s.started){
+      // if we're seatless (e.g. a seat just freed up), try to grab one
+      if(!s.your_seat){ const j=await api('/api/join',{}); if(j&&j.state){ STATE=j.state; render(); return; } }
+      STATE=s; render();
+    }
+  }catch(e){}
+}
+function startPolling(){ if(polling) return; polling=setInterval(refresh,2000); }
+
+async function toggleCtl(name,toAI){
+  if(busy)return; $('#err').textContent='';
+  const path=toAI?'/api/release':'/api/claim';
+  if(!toAI) thinking(false);          // claiming is instant; releasing may run an AI turn
+  if(toAI) thinking(true);
+  try{ const res=await api(path,{name});
+    if(res.error){$('#err').textContent=res.error;} else apply(res);
+  }catch(e){$('#err').textContent='Connection error.'; }
+  finally{ if(toAI) thinking(false); }
+}
+
+async function sendAction(){
+  const t=$('#cmd').value.trim(); if(!t||busy||!STATE||!STATE.your_turn)return;
+  $('#cmd').value=''; $('#err').textContent=''; thinking(true);
+  try{ const res=await api('/api/action',{action:t});
+    if(res.error){$('#err').textContent=res.error;} else apply(res);
+  }catch(e){$('#err').textContent='Connection error.';} finally{thinking(false);}
+}
+$('#send').onclick=sendAction;
+$('#cmd').addEventListener('keydown',e=>{if(e.key==='Enter')sendAction();});
+
+$('#begin').onclick=async()=>{
+  const body={name:$('#f_name').value.trim()||'Bea',premise:$('#f_premise').value.trim(),
+    companions:$('#f_comp').value.trim(),seed:$('#f_seed').value.trim(),
+    party_size:parseInt($('#f_size').value,10)||4};
+  $('#serr').textContent=''; $('#begin').disabled=true; $('#begin').textContent='The Warden is setting the scene…';
+  try{ const res=await api('/api/new',body);
+    if(res.error){$('#serr').textContent=res.error;$('#begin').disabled=false;$('#begin').textContent='Enter the Wood';return;}
+    $('#setup').style.display='none'; lastLogLen=-1; apply(res); startPolling();
+  }catch(e){$('#serr').textContent='Could not reach the server.';$('#begin').disabled=false;$('#begin').textContent='Enter the Wood';}
+};
+$('#newgame').onclick=()=>{
+  $('#begin').disabled=false; $('#begin').textContent='Enter the Wood'; $('#serr').textContent='';
+  $('#setup').style.display='flex';
+};
+
+// On load: if a game is in progress, claim a seat (take over an AI) and play.
+api('/api/join',{}).then(res=>{
+  if(res && res.state && res.state.started){
+    $('#setup').style.display='none'; lastLogLen=-1; STATE=res.state; render(); startPolling();
+  }
+});
+</script>
+</body>
+</html>
