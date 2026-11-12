@@ -13,6 +13,7 @@ from engine.state import Character, GameState, Monster
 from engine.session import Session
 from rulesets import available, load_ruleset
 from rulesets.cairn import CairnRuleset
+from rulesets.dnd35 import DnD35Ruleset, _mod
 
 
 class ScriptedDice(Dice):
@@ -300,6 +301,83 @@ class TestMultiplayer(unittest.TestCase):
         self.t.claim("bob", "Thorn")
         with self.assertRaises(Exception):          # carol neither owns it nor is host
             self.t.release("carol", "Thorn")
+
+
+class TestDnD35(unittest.TestCase):
+    """D&D 3.5 (d20/SRD) ruleset — fully deterministic, no LLM."""
+    def setUp(self):
+        self.rs = DnD35Ruleset()
+
+    def _pc(self):
+        return Character(
+            name="Tark",
+            abilities={"STR": 14, "DEX": 12, "CON": 13, "INT": 10, "WIS": 8, "CHA": 10},
+            hp=10, max_hp=10, armor=15,
+            weapon="longsword", weapon_die="1d8",
+            extras={"save_base": {"fort": 2, "ref": 0, "will": 0},
+                    "attack_bonus": 5, "attack_mode": "melee", "level": 1})
+
+    def test_ability_modifier(self):
+        self.assertEqual([_mod(n) for n in (7, 8, 10, 11, 14, 18)], [-2, -1, 0, 0, 2, 4])
+
+    def test_registered_and_six_abilities(self):
+        self.assertIn("dnd35", [r["id"] for r in available()])
+        rs = load_ruleset("dnd35")
+        self.assertEqual(rs.abilities, ["STR", "DEX", "CON", "INT", "WIS", "CHA"])
+
+    def test_class_inferred_from_persona(self):
+        wiz = self.rs.create_character(Dice(seed=7), "Bram", persona="whacky wizard")
+        self.assertEqual(wiz.extras["cls"], "wizard")
+        self.assertEqual(wiz.weapon_die, "1d6")
+        self.assertEqual(wiz.extras["hd"], 4)
+        self.assertEqual(set(wiz.abilities), {"STR","DEX","CON","INT","WIS","CHA"})
+        self.assertGreaterEqual(wiz.hp, 1)
+        self.assertGreaterEqual(wiz.armor, 10)          # AC is 10 + ...
+        ftr = self.rs.create_character(Dice(seed=7), "Thorn", persona="gruff dwarf warrior")
+        self.assertEqual(ftr.extras["cls"], "fighter")
+
+    def test_save_vs_dc_and_natural_rolls(self):
+        pc = self._pc()
+        # Reflex DC 15: nat 10 + DEX mod (+1) + ref base 0 = 11 -> fail
+        f = self.rs.roll_save(ScriptedDice([10]), pc, "Ref", dc=15)
+        self.assertEqual(f["dc"], 15); self.assertFalse(f["success"])
+        # Fortitude: nat 12 + CON mod (+1) + fort base 2 = 15 vs DC 15 -> pass
+        p = self.rs.roll_save(ScriptedDice([12]), pc, "Fort", dc=15)
+        self.assertTrue(p["success"])
+        # natural 1 always fails, natural 20 always succeeds
+        self.assertFalse(self.rs.roll_save(ScriptedDice([1]), pc, "Fort", dc=1)["success"])
+        self.assertTrue(self.rs.roll_save(ScriptedDice([20]), pc, "Will", dc=99)["success"])
+
+    def test_attack_hit_miss_and_crit(self):
+        pc = self._pc()
+        foe = self.rs.make_monster(Dice(seed=1), {"name": "Orc", "ac": 15, "hp": 20})
+        # miss: nat 2 + 5 = 7 vs AC 15
+        miss = self.rs.resolve_attack(ScriptedDice([2]), pc, foe)
+        self.assertFalse(miss["hit"]); self.assertEqual(foe.hp, 20)
+        # hit: nat 14 + 5 = 19 >= 15; damage 1d8 roll 6 + STR mod 2 = 8
+        hit = self.rs.resolve_attack(ScriptedDice([14, 6]), pc, foe)
+        self.assertTrue(hit["hit"]); self.assertEqual(hit["damage"], 8); self.assertEqual(foe.hp, 12)
+        # crit: nat 20 (attack), 5 (damage die), 15 (confirm) -> (5+2)*2 = 14
+        crit = self.rs.resolve_attack(ScriptedDice([20, 5, 15]), pc, foe)
+        self.assertTrue(crit["critical"]); self.assertEqual(crit["damage"], 14); self.assertEqual(foe.hp, -2)
+        self.assertEqual(foe.status, "critical")         # below 0 but above -10 = dying
+
+    def test_death_at_minus_ten(self):
+        foe = self.rs.make_monster(Dice(seed=1), {"name": "Goblin", "ac": 14, "hp": 5})
+        out = self.rs._apply_damage(Dice(), foe, 16)      # 5 - 16 = -11
+        self.assertTrue(out.get("died")); self.assertEqual(foe.status, "dead")
+
+    def test_persistence_roundtrip_keeps_extras(self):
+        import tempfile
+        from engine import store
+        store.DB_PATH = os.path.join(tempfile.mkdtemp(), "d35.db")
+        store.init_db()
+        st = GameState(ruleset="dnd35")
+        st.party = [self.rs.create_character(Dice(seed=3), "Mira", persona="elf ranger")]
+        gid = store.create_game("dnd35", "Mira", "test", st, [])
+        back = store.load_latest()["state"]
+        self.assertEqual(back.party[0].extras["cls"], "ranger")
+        self.assertEqual(back.party[0].extras["attack_mode"], "ranged")
 
 
 if __name__ == "__main__":

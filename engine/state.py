@@ -32,6 +32,7 @@ class Character:
     notes: str = ""
     x: int = 0                         # token position on the battle map (cells)
     y: int = 0
+    extras: dict = field(default_factory=dict)   # ruleset-specific stats (e.g. D&D level/BAB/saves)
 
     def alive(self) -> bool:
         return self.status != "dead"
@@ -53,6 +54,7 @@ class Monster:
     kind: str = "monster"              # monster | npc (affects token color)
     x: int = 0
     y: int = 0
+    extras: dict = field(default_factory=dict)   # ruleset-specific stats
 
     def alive(self) -> bool:
         return self.status not in ("dead", "fled")

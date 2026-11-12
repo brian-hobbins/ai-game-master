@@ -152,6 +152,10 @@
   .sheet p.sub{color:var(--dim);font-size:13px;margin:0 0 18px}
   .field{margin-bottom:13px}
   .field label{display:block;font-size:12px;color:var(--dim);margin-bottom:5px}
+  .field label.lbrow{display:flex;align-items:center;gap:10px}
+  .genbtn{background:#15304a;color:#9ec3ff;border:1px solid #214a7a;border-radius:999px;
+    font-size:11px;padding:3px 10px;cursor:pointer;transition:filter .15s}
+  .genbtn:hover{filter:brightness(1.3)}
   .field input,.field textarea,.field select{width:100%;background:#0b0c11;border:1px solid var(--line);
     color:var(--ink);border-radius:8px;padding:9px 11px;outline:none}
   .field textarea{resize:vertical;min-height:54px}
@@ -215,10 +219,14 @@
       <div class="field"><label>Party size (incl. you)</label>
         <select id="f_size"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
     </div>
-    <div class="field"><label>Adventure premise</label>
+    <div class="field"><label>Game system</label>
+      <select id="f_ruleset"><option value="cairn">Cairn</option></select>
+      <div id="rs_note" style="font-size:11px;color:var(--dim);margin-top:5px"></div></div>
+    <div class="field"><label class="lbrow">Adventure premise
+      <button type="button" id="gen_premise" class="genbtn">🎲 Generate new</button></label>
       <textarea id="f_premise">The village well has run black, and something stirs in the dark water below. The headwoman has hired you to descend and end it.</textarea></div>
     <div class="field"><label>AI companions (optional) — <span style="color:var(--dim)">any seats you leave blank are filled by the AI. Name:persona; separated by ;</span></label>
-      <input id="f_comp" placeholder="leave blank to auto-fill, or e.g. Thorn:gruff dwarf; Mira:wary scout"></div>
+      <input id="f_comp" placeholder="leave blank to auto-fill, or e.g. Thorn:gruff dwarf warrior; Mira:sassy cleric; Bram:whacky wizard"></div>
     <div class="field"><label>Dice seed (optional)</label><input id="f_seed" placeholder="blank = random"></div>
     <button class="go" id="begin" style="width:100%;padding:12px">Enter the Wood</button>
     <div class="err" id="serr"></div>
@@ -441,6 +449,7 @@ $('#cmd').addEventListener('keydown',e=>{if(e.key==='Enter')sendAction();});
 $('#begin').onclick=async()=>{
   const body={name:$('#f_name').value.trim()||'Bea',premise:$('#f_premise').value.trim(),
     companions:$('#f_comp').value.trim(),seed:$('#f_seed').value.trim(),
+    ruleset:$('#f_ruleset').value||'cairn',
     party_size:parseInt($('#f_size').value,10)||4};
   $('#serr').textContent=''; $('#begin').disabled=true; $('#begin').textContent='The Warden is setting the scene…';
   try{ const res=await api('/api/new',body);
@@ -448,6 +457,51 @@ $('#begin').onclick=async()=>{
     $('#setup').style.display='none'; lastLogLen=-1; apply(res); startPolling();
   }catch(e){$('#serr').textContent='Could not reach the server.';$('#begin').disabled=false;$('#begin').textContent='Enter the Wood';}
 };
+// --- procedural adventure-premise generator (instant, no server round-trip) ---
+const _pick=a=>a[Math.floor(Math.random()*a.length)];
+const _cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+const PATRON=['The village headwoman','A trembling merchant','The old reeve','A hooded stranger with too much silver',
+  "The temple's last priest",'A grieving widow','the mine foreman','A desperate innkeeper',
+  "The baron's nervous steward",'A one-eyed trapper','The guild of saltters','An exiled scholar'];
+const SITE=['the black well beneath the square','a barrow that split open after the storm',
+  'the flooded undercroft of the old chapel','the mine shaft the diggers fled','a watchtower gone silent on the moor',
+  'the sinkhole that swallowed three sheep and a child','a ruin the forest has nearly reclaimed',
+  'the ice cave the hunters will not name','the sewers beneath the market','a lighthouse whose keeper vanished',
+  'the drowned village the new lake left behind','a crypt the last frost cracked open'];
+const WRONG=['something has been dragging folk under in the night','the dead will not stay buried',
+  'a cold green light pulses up from below after dusk','the water has run black and bitter',
+  'whispers rise through the floor stones','the livestock come back wrong, if they come back',
+  'a door that should have stayed shut has opened','the diggers broke into something older than the rock',
+  'a plague of vermin boils up out of the dark','a slow hunger moves in the deep places',
+  'the children have started sleepwalking toward it','travellers who pass that way are never seen again'];
+const CHARGE=['Descend, and end it — they will pay in silver and silence.',
+  'Find what festers there and put it down before the next new moon.',
+  'Bring back what was taken, or at least the truth of it.',
+  'Seal the way, whatever it costs, and do not look too closely.',
+  'Whoever walks back out keeps a share of what glitters below.',
+  'Make an end of it, and the town is yours to call a friend.'];
+function generatePremise(){
+  const patron=_pick(PATRON), site=_pick(SITE), wrong=_pick(WRONG), charge=_pick(CHARGE);
+  const tpl=Math.random()<0.5
+    ? `${_cap(patron)} has hired you. ${_cap(wrong)}, and the source lies in ${site}. ${charge}`
+    : `They speak of ${site} in low voices now — ${wrong}. ${_cap(patron)} has gathered what coin the town can spare and begs you to make an end of it.`;
+  return tpl;
+}
+$('#gen_premise').onclick=()=>{ $('#f_premise').value=generatePremise(); };
+
+// populate the game-system picker from the server (lists every registered ruleset)
+const RS_NOTES={cairn:'Classless, fiction-first, lethal. Rolls UNDER your ability; armor soaks damage.',
+  dnd35:'The d20 System (SRD 3.5, OGL). Classes, levels, d20 vs AC & save DCs, criticals.'};
+let RULESETS=[{id:'cairn',name:'Cairn'}];
+function renderRulesetNote(){ const r=$('#f_ruleset').value; $('#rs_note').textContent=RS_NOTES[r]||''; }
+api('/api/rulesets').then(d=>{
+  if(d&&d.rulesets&&d.rulesets.length){ RULESETS=d.rulesets;
+    $('#f_ruleset').innerHTML=RULESETS.map(r=>`<option value="${r.id}">${ESC(r.name)}${r.license?' · '+ESC(r.license):''}</option>`).join('');
+  }
+  renderRulesetNote();
+}).catch(()=>renderRulesetNote());
+$('#f_ruleset').onchange=renderRulesetNote;
+
 $('#newgame').onclick=()=>{
   $('#begin').disabled=false; $('#begin').textContent='Enter the Wood'; $('#serr').textContent='';
   $('#setup').style.display='flex';

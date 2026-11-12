@@ -81,7 +81,7 @@ resolutions (monsters as the attacker), telegraphed by their nature.
 Return STRICT JSON, no prose outside it, with this shape:
 {{
   "resolutions": [
-    {{"kind":"save","actor":"<character name>","ability":"STR|DEX|WIL","reason":"<why>"}},
+    {{"kind":"save","actor":"<character name>","ability":"{ruleset.save_prompt()}","dc":<number — only for systems that roll vs a DC; omit otherwise>,"reason":"<why>"}},
     {{"kind":"attack","attacker":"<name>","target":"<name>","modifier":"normal|impaired|enhanced","reason":"<why>"}},
     {{"kind":"reaction"}},
     {{"kind":"morale","actor":"<monster name>"}}
@@ -114,9 +114,7 @@ map and roughly within ~4 cells per turn). IMPORTANT positional rule: whenever a
 melee attack happens, make sure the attacker and target end up ADJACENT (within
 1 cell) — move the attacker next to the target (or the monster next to its prey)
 via "movements" so the map matches the fiction. Only ranged attackers stay at a
-distance. Build monster stats per the rules
-guidance (average 10 ability, 3 HP weak / 6 hardy / 10+ serious; weapon dice
-d6-d10)."""
+distance. {ruleset.monster_guidance()}"""
 
 
 def referee_user(state: GameState, actor_name: str, action: str) -> str:

@@ -42,6 +42,11 @@ class CairnRuleset(Ruleset):
     def rules_reference(self) -> str:
         return _RULES_DIGEST
 
+    def monster_guidance(self) -> str:
+        return ("Build monster stats per Cairn norms (average 10 ability, "
+                "3 HP weak / 6 hardy / 10+ serious; weapon dice d6-d10; "
+                "Armor 0-3). Give 'armor' as the Armor value.")
+
     # -- character creation -------------------------------------------------
     def create_character(self, dice, name, background="", traits="",
                          is_ai=False, persona="") -> Character:
@@ -81,7 +86,7 @@ class CairnRuleset(Ruleset):
         )
 
     # -- resolution ---------------------------------------------------------
-    def roll_save(self, dice, actor, ability, reason="") -> dict:
+    def roll_save(self, dice, actor, ability, reason="", dc=None) -> dict:
         ability = ability.upper()
         score = actor.abilities.get(ability, 10)
         r = dice.d20()

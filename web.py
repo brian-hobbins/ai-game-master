@@ -401,6 +401,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(500, {"error": "web/index.html missing"})
         if url.path == "/api/health":
             return self._json(200, {"ok": True, "rulesets": available()})
+        if url.path == "/api/rulesets":
+            return self._json(200, {"rulesets": available()})
         if url.path == "/api/state":
             pid = (parse_qs(url.query).get("player_id", [""])[0]) or None
             with TABLE.lock:

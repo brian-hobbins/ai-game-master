@@ -7,9 +7,11 @@ from __future__ import annotations
 
 from rulesets.base import Ruleset
 from rulesets.cairn import CairnRuleset
+from rulesets.dnd35 import DnD35Ruleset
 
 _REGISTRY: dict[str, type[Ruleset]] = {
     CairnRuleset.id: CairnRuleset,
+    DnD35Ruleset.id: DnD35Ruleset,
     # "5e":   DnD5eRuleset,     # <- future
     # "osric": OSRICRuleset,    # <- future
 }

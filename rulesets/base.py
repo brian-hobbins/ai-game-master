@@ -38,6 +38,16 @@ class Ruleset(ABC):
         Must be short enough to send every turn but complete enough to
         adjudicate fairly."""
 
+    # --- prompt hints (optional; let a system tailor the referee schema) ----
+    def save_prompt(self) -> str:
+        """The enum shown for a save's `ability` field in the referee schema."""
+        return "|".join(self.abilities)
+
+    def monster_guidance(self) -> str:
+        """One line telling the Warden how to stat a spawned creature."""
+        return ("Build monster stats to fit this system: ability scores, HP, "
+                "Armor and weapon dice consistent with the rules digest above.")
+
     # --- character / monster construction ----------------------------------
     @abstractmethod
     def create_character(self, dice: Dice, name: str, background: str = "",
@@ -52,7 +62,10 @@ class Ruleset(ABC):
 
     # --- resolution (the engine calls these; each mutates state) -----------
     @abstractmethod
-    def roll_save(self, dice: Dice, actor, ability: str, reason: str = "") -> dict:
+    def roll_save(self, dice: Dice, actor, ability: str, reason: str = "",
+                  dc: int | None = None) -> dict:
+        """Resolve a save. `dc` is used by systems that roll against a target
+        number (D&D); systems that compare to an ability score (Cairn) ignore it."""
         ...
 
     @abstractmethod

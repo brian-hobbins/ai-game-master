@@ -86,7 +86,8 @@ class Session:
                     actor = self.state.combatant(r.get("actor", ""))
                     if actor:
                         out.append(self.ruleset.roll_save(
-                            self.dice, actor, r.get("ability", "STR"), r.get("reason", "")))
+                            self.dice, actor, r.get("ability", "STR"), r.get("reason", ""),
+                            dc=r.get("dc")))
                 elif kind == "attack":
                     atk = self.state.combatant(r.get("attacker", ""))
                     tgt = self.state.combatant(r.get("target", ""))
